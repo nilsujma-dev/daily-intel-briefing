@@ -255,3 +255,52 @@ def diagnose(log=print):
             log("  Items exist but none survived. Inspect with:  ./run.sh --since 168 --dry-run")
     store.close()
     return 0
+
+
+
+def mark_seen(since_hours=None, log=print):
+    """Record everything currently in the window as already sent, without emailing.
+
+    Recovery tool for a lost or replaced send-history: it re-synchronises the
+    database with what has actually gone out, so the next scheduled run starts
+    from a clean baseline instead of re-sending days of old news.
+
+    Anything genuinely new that arrived inside the window is also marked, so use
+    the narrowest window that covers the gap.
+    """
+    cfg = Config()
+    store = Store(cfg.db_path)
+    run_id = store.start_run()
+    try:
+        cache = store.feed_cache()
+        results = fetchmod.fetch_all(cfg, cache, log=lambda *_: None)
+        items = []
+        for res in results:
+            store.update_feed_cache(res.feed["url"], res.etag, res.last_modified, res.status)
+            items.extend(res.items)
+        log("Fetched %d items." % len(items))
+
+        items, aged, cutoff = filter_recent(items, cfg, store.last_successful_run(),
+                                            since_hours=since_hours)
+        items, merged = collapse_in_run(items, cfg)
+        fresh, suppressed = filter_unseen(items, store, cfg)
+
+        log("Window from %s" % cutoff.astimezone(local_tz()).strftime("%d %b %H:%M %Z"))
+        log("  %d in window, %d duplicates merged, %d already known."
+            % (len(items), merged, suppressed))
+
+        if not fresh:
+            log("\nNothing to mark - the history already covers this window.")
+            store.finish_run(run_id, "marked", 0, 0, suppressed, "no-op")
+            return 0
+
+        store.mark_sent(fresh, run_id)
+        cyber = sum(1 for i in fresh if i["domain"] == "cyber")
+        store.finish_run(run_id, "marked", cyber, len(fresh) - cyber, suppressed,
+                         "marked %d as seen without sending" % len(fresh))
+        log("\nMarked %d stories as already sent (%d cyber, %d AI). No email was sent."
+            % (len(fresh), cyber, len(fresh) - cyber))
+        log("The next scheduled run will only report what is genuinely newer.")
+        return 0
+    finally:
+        store.close()

@@ -1,6 +1,6 @@
 """CLI entry point:  python3 -m briefing [options]"""
 from __future__ import annotations
-import argparse, sys
+import argparse, os, sys
 from datetime import datetime
 from pathlib import Path
 
@@ -20,14 +20,25 @@ def main(argv=None):
     ap.add_argument("--since", type=float, metavar="HOURS",
                     help="override the lookback window, e.g. --since 72")
     ap.add_argument("--check-feeds", action="store_true", help="test every feed and exit")
+    ap.add_argument("--check-claude", action="store_true",
+                    help="verify the Anthropic API key actually works")
     ap.add_argument("--authorize", action="store_true", help="run the one-time Google sign-in")
     ap.add_argument("--stats", action="store_true", help="show run history and feed health")
     ap.add_argument("--diagnose", action="store_true",
                     help="explain exactly why a briefing came out empty")
+    ap.add_argument("--mark-seen", action="store_true",
+                    help="record the current window as already sent, without emailing "
+                         "(recovery after a lost send-history)")
     ap.add_argument("--test-email", action="store_true",
                     help="send a short test message to confirm delivery works")
     ap.add_argument("--quiet", action="store_true", help="only print warnings and errors")
     args = ap.parse_args(argv)
+
+    # Lets a caller force a non-sending run without altering the unit file.
+    # deploy.sh uses this to execute the real systemd unit as a smoke test:
+    # the sandbox gets exercised for real, but no email goes out.
+    if os.environ.get("BRIEFING_DRY_RUN", "").strip() in ("1", "true", "yes"):
+        args.dry_run = True
 
     from . import pipeline
 
@@ -41,6 +52,9 @@ def main(argv=None):
         from . import gmail
         gmail.send_test(Config(), log=print)
         return 0
+    if args.check_claude:
+        from . import curate
+        return curate.check(Config(), log=print)
     if args.check_feeds:
         return 0 if pipeline.check_feeds(log=print) else 1
     if args.stats:
@@ -48,6 +62,8 @@ def main(argv=None):
         return 0
     if args.diagnose:
         return pipeline.diagnose(log=print)
+    if args.mark_seen:
+        return pipeline.mark_seen(since_hours=args.since, log=print)
 
     preview_path = args.preview
     if preview_path == "auto":

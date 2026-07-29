@@ -317,3 +317,57 @@ def curate(tables, cfg, now, log=lambda *_: None):
         for item in tables[domain]:
             item.pop("_cid", None)
     return tables, status
+
+
+def check(cfg, log=print):
+    """Verify the Anthropic key actually works.
+
+    The pipeline degrades silently by design - a bad key still produces a
+    briefing, just keyword-ranked - so without an explicit check you can run for
+    weeks without noticing Claude was never consulted.
+    """
+    model = cfg.path("curation.model", "claude-opus-5")
+    if not cfg.path("curation.enabled", True):
+        log("Claude curation is disabled in config/settings.json.")
+        log("Briefings are ranked by keyword scoring. This is not an error.")
+        return 1
+
+    try:
+        key = api_key(cfg)
+    except CurationUnavailable as exc:
+        log("No API key: %s" % exc)
+        log("\nBriefings still send, ranked by keyword scoring.")
+        log("To enable Claude ranking:")
+        log("    printf '%s' 'sk-ant-...' > secrets/anthropic_api_key")
+        return 1
+
+    log("Key    : %s… (%d chars)" % (key[:14], len(key)))
+    log("Model  : %s" % model)
+    body = {"model": model, "max_tokens": 16,
+            "messages": [{"role": "user", "content": "Reply with the single word: ok"}]}
+    try:
+        resp = _request(cfg, key, body, cfg.path("curation.timeout_seconds", 120))
+        text = "".join(b.get("text", "") for b in resp.get("content", []) if b.get("type") == "text")
+        usage = resp.get("usage", {})
+        log("Result : OK - model replied %r (%s in / %s out tokens)"
+            % (text.strip()[:20], usage.get("input_tokens", "?"), usage.get("output_tokens", "?")))
+        log("\nClaude will prioritise and summarise your next briefing.")
+        return 0
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:200]
+        log("Result : HTTP %s - %s" % (exc.code, detail))
+        if exc.code == 401:
+            log("\nThe key is not valid. Most likely it was rotated or revoked.")
+            log("Create a new one at https://console.anthropic.com/settings/keys then:")
+            log("    printf '%s' 'sk-ant-...' > secrets/anthropic_api_key")
+            log("    chmod 600 secrets/anthropic_api_key")
+        elif exc.code == 400:
+            log("\nRequest rejected - check that curation.model is a model you can access.")
+        elif exc.code == 429:
+            log("\nRate limited or out of credit. Check your plan at console.anthropic.com.")
+        log("\nUntil this is fixed, briefings still send - ranked by keyword scoring.")
+        return 1
+    except Exception as exc:  # noqa: BLE001
+        log("Result : %s: %s" % (type(exc).__name__, exc))
+        log("\nCould not reach the API. Briefings still send, keyword-ranked.")
+        return 1

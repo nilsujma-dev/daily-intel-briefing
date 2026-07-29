@@ -12,19 +12,21 @@ ExecStart=%h/briefing/run.sh --quiet
 # The feeds are external and occasionally slow; never let a run hang forever.
 TimeoutStartSec=600
 
-# ProtectSystem=strict mounts the whole hierarchy read-only, so state/ must be
-# named explicitly - SQLite writes both the database and its journal there.
-# Hardening is kept to options that are well-behaved with CPython; anything
-# exotic here would trade a real 08:00 delivery for a theoretical gain.
+# Hardening is limited to what a --user manager can actually apply.
+#
+# ProtectKernelTunables, ProtectKernelModules, ProtectControlGroups and
+# RestrictSUIDSGID all drop capabilities, which an unprivileged user manager
+# cannot do: the unit then fails with 218/CAPABILITIES *before* ExecStart runs,
+# so the briefing silently never happens. They are system-service-only.
+# Do not add them back to this unit.
+#
+# The options below are namespace-based and work fine unprivileged.
+# ProtectSystem=strict mounts everything read-only, so state/ must be named
+# explicitly - SQLite writes both the database and its journal there.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ReadWritePaths=%h/briefing/state
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-LockPersonality=true
 
 StandardOutput=append:%h/briefing/state/logs/systemd.out.log
 StandardError=append:%h/briefing/state/logs/systemd.err.log

@@ -155,6 +155,7 @@ else
   p PYVER unknown; p MOD_SQLITE missing; p MOD_SSL missing; p HTTPS fail
 fi
 p TZ "$(timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null || echo unknown)"
+p TZOFF "$(date +%z)"
 p LINGER "$(loginctl show-user "$USER" --property=Linger --value 2>/dev/null || echo no)"
 REMOTE
 }
@@ -239,9 +240,14 @@ esac
 
 LOCAL_TZ="$(readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||')"
 REMOTE_TZ="$(field TZ)"
-if [ -n "$LOCAL_TZ" ] && [ "$REMOTE_TZ" != "$LOCAL_TZ" ]; then
-  warn "server timezone is $REMOTE_TZ, your Mac is $LOCAL_TZ - the briefing arrives at 08:00 $REMOTE_TZ."
-  warn "To match your Mac:  ssh $TARGET sudo timedatectl set-timezone $LOCAL_TZ"
+# Compare UTC offsets rather than zone names: Europe/Amsterdam and Europe/Berlin
+# are different names for the same clock, and warning about that is noise.
+if [ "$(field TZOFF)" = "$(date +%z)" ]; then
+  ok "server timezone $REMOTE_TZ - same clock as this machine"
+else
+  warn "server is $REMOTE_TZ ($(field TZOFF)), this machine is ${LOCAL_TZ:-local} ($(date +%z))."
+  warn "The briefing arrives at 08:00 $REMOTE_TZ, which is not 08:00 your time."
+  [ -n "$LOCAL_TZ" ] && warn "To match:  ssh -t $TARGET sudo timedatectl set-timezone $LOCAL_TZ"
 fi
 
 # ------------------------------------------------------------------ package
@@ -251,9 +257,21 @@ for required in secrets/client_secret.json secrets/token.json secrets/anthropic_
 done
 ok "credentials present (OAuth client, Gmail token, Anthropic key)"
 
+if [ ! -f config/settings.local.json ]; then
+  die "config/settings.local.json is missing, so no recipient would be deployed.
+  The tracked config/settings.json only holds the placeholder address.
+      cp config/settings.local.example.json config/settings.local.json
+      \$EDITOR config/settings.local.json"
+fi
+ok "recipient override present: $(python3 -c "
+import json; print(json.load(open('config/settings.local.json')).get('recipient','?'))" 2>/dev/null)"
+
 STAGE="$(mktemp -d)"
-PAYLOAD=(briefing config tests deploy run.sh README.md secrets)
-[ -f state/briefing.db ] && PAYLOAD+=(state/briefing.db)
+# The send-history is deliberately NOT in this archive. Extracting it would
+# overwrite whatever the server has already recorded, and the server's copy is
+# usually the newer one - the machine that has been sending. It is transferred
+# separately below and merged.
+PAYLOAD=(briefing config tests deploy scripts run.sh README.md secrets)
 tar czf "$STAGE/briefing.tgz" \
   --exclude='__pycache__' --exclude='*.pyc' --exclude='.DS_Store' \
   --exclude='state/preview' --exclude='state/logs' \
@@ -267,7 +285,7 @@ if [ -f state/briefing.db ]; then
 import sqlite3
 try: print(sqlite3.connect('state/briefing.db').execute('SELECT COUNT(*) FROM seen').fetchone()[0])
 except Exception: print(0)" 2>/dev/null || echo 0)"
-  ok "carrying forward $SENT_COUNT already-sent items so the server will not resend them"
+  ok "local send-history has $SENT_COUNT items - will be merged into the server's, not replace it"
 fi
 
 # ----------------------------------------------------------------- transfer
@@ -286,9 +304,56 @@ rsh "set -e
   find . -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true"
 ok "extracted, secrets locked to 0600"
 
+# Union of both histories: an item either machine has emailed is never emailed
+# again. Replacing rather than merging would resurrect stories the server had
+# already sent and produce exactly the duplicates this app exists to prevent.
+if [ -f state/briefing.db ]; then
+  cat state/briefing.db | rsh "cat > ~/$REMOTE_DIR/state/_incoming.db" \
+    || die "failed to transfer the send-history."
+  MERGE_OUT="$(rsh "cd ~/$REMOTE_DIR && python3 - <<'PYEOF'
+import os, sqlite3, sys
+base, inc = 'state/briefing.db', 'state/_incoming.db'
+if not os.path.exists(inc):
+    print('nothing to merge'); sys.exit(0)
+if not os.path.exists(base):
+    os.rename(inc, base); print('installed fresh history'); sys.exit(0)
+con = sqlite3.connect(base)
+con.execute('ATTACH ? AS inc', (inc,))
+before = con.execute('SELECT COUNT(*) FROM seen').fetchone()[0]
+incoming = con.execute('SELECT COUNT(*) FROM inc.seen').fetchone()[0]
+cols = 'url_hash,guid_hash,title_hash,title_norm,canonical_url,title,source,domain,published_at,sent_at,run_id'
+con.execute('INSERT OR IGNORE INTO seen(%s) SELECT %s FROM inc.seen' % (cols, cols))
+rcols = 'run_id,started_at,finished_at,status,cyber_count,ai_count,suppressed,detail'
+con.execute('INSERT OR IGNORE INTO runs(%s) SELECT %s FROM inc.runs' % (rcols, rcols))
+con.commit()
+after = con.execute('SELECT COUNT(*) FROM seen').fetchone()[0]
+con.execute('DETACH inc'); con.close(); os.remove(inc)
+print('server had %d, local had %d, merged to %d' % (before, incoming, after))
+PYEOF" 2>&1 | tail -1)"
+  ok "send-history merged: $MERGE_OUT"
+else
+  ok "no local send-history to merge"
+fi
+
 rsh "cd ~/$REMOTE_DIR && python3 -c 'import briefing.pipeline, briefing.curate, briefing.gmail'" \
   || die "the application failed to import on the server."
 ok "application imports cleanly"
+
+# Config is merged from a tracked template plus an untracked override. If the
+# override failed to arrive the server would import fine and then fail at 08:00
+# with no recipient - so resolve it here, where the failure is visible.
+REMOTE_RCPT="$(rsh "cd ~/$REMOTE_DIR && python3 -c \"
+import sys; sys.path.insert(0,'.')
+from briefing.config import Config
+try: print(Config().require_recipient())
+except Exception as e: print('UNCONFIGURED')
+\"" 2>/dev/null | tail -1)"
+case "$REMOTE_RCPT" in
+  ""|UNCONFIGURED)
+    die "the server has no recipient configured - it would fail silently at 08:00.
+  config/settings.local.json did not arrive or is malformed." ;;
+  *) ok "server will send to $REMOTE_RCPT" ;;
+esac
 
 # ------------------------------------------------------------------ systemd
 say "5/7  Installing the 08:00 timer"
@@ -324,19 +389,54 @@ fi
 say "6/7  Verifying"
 rsh "cd ~/$REMOTE_DIR && ./run.sh --check-feeds" | tail -2
 
+# Not fatal: a dead key degrades to keyword ranking rather than breaking the
+# briefing. But it is silent, so surface it here rather than letting it hide.
+if rsh "cd ~/$REMOTE_DIR && ./run.sh --check-claude" >/dev/null 2>&1; then
+  ok "Anthropic key valid - Claude will rank the briefing"
+else
+  warn "Claude ranking is NOT active - briefings will use keyword scoring."
+  warn "Diagnose with:  ssh $TARGET 'cd ~/$REMOTE_DIR && ./run.sh --check-claude'"
+fi
+
 # Executing the unit is the only way to prove the systemd sandbox actually lets
 # SQLite write to state/. A permissions problem found now beats a silent failure
 # at 08:00 tomorrow. With nothing new to report this sends no email but still
 # writes a run record - exactly the check required.
-echo "  starting briefing.service once…"
+# Start the real unit, so the systemd sandbox is genuinely exercised, but set
+# BRIEFING_DRY_RUN in the user manager's environment first so the run builds a
+# briefing and sends nothing. A deployment should never email you as a
+# side-effect of deploying, and must never consume unsent stories.
+echo "  starting briefing.service once (sending suppressed)…"
+rsh "systemctl --user set-environment BRIEFING_DRY_RUN=1" 2>/dev/null || true
 rsh "systemctl --user start briefing.service" 2>/dev/null || true
 RESULT="$(rsh "systemctl --user show briefing.service -p ExecMainStatus --value" 2>/dev/null || echo '?')"
+rsh "systemctl --user unset-environment BRIEFING_DRY_RUN" 2>/dev/null || true
+
 if [ "$RESULT" = "0" ]; then
-  ok "service ran successfully inside the systemd sandbox"
+  ok "service ran successfully inside the systemd sandbox (no email sent)"
+elif [ "$RESULT" -ge 200 ] 2>/dev/null; then
+  # 2xx codes come from systemd itself, before ExecStart is reached: the unit
+  # could not be set up. The briefing would never run and nothing would appear
+  # in the app's own logs, so this must stop the deployment, not warn.
+  case "$RESULT" in
+    218) REASON="218/CAPABILITIES - a directive in briefing.service needs privileges a --user manager does not have" ;;
+    226) REASON="226/NAMESPACE - ProtectSystem or PrivateTmp could not set up its mount namespace" ;;
+    227) REASON="227/GROUP" ;; 228) REASON="228/USER" ;;
+    *)   REASON="$RESULT - systemd could not set up the unit" ;;
+  esac
+  die "the service failed before it ever started: $REASON
+
+  This is a unit configuration problem, not an application error. Left alone the
+  08:00 briefing would silently never run.
+
+      ssh $TARGET journalctl --user -u briefing.service -n 30 --no-pager
+
+  Fix deploy/briefing.service, then run ./deploy.sh again."
 else
-  warn "service exited with status $RESULT - inspect with:"
-  warn "    ssh $TARGET journalctl --user -u briefing.service -n 40"
+  warn "the application itself exited with status $RESULT."
+  warn "The unit is configured correctly but the run failed - inspect:"
   warn "    ssh $TARGET tail -40 ~/$REMOTE_DIR/state/logs/systemd.err.log"
+  warn "    ssh $TARGET 'cd ~/$REMOTE_DIR && ./run.sh --diagnose'"
 fi
 rsh "systemctl --user list-timers briefing.timer --no-pager" | sed -n '1,3p'
 

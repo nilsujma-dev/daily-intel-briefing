@@ -104,7 +104,8 @@ class Store:
 
     def last_successful_run(self):
         row = self.conn.execute(
-            "SELECT started_at FROM runs WHERE status IN ('sent','empty') ORDER BY started_at DESC LIMIT 1"
+            "SELECT started_at FROM runs WHERE status IN ('sent','empty','marked') "
+            "ORDER BY started_at DESC LIMIT 1"
         ).fetchone()
         if not row or not row["started_at"]:
             return None
