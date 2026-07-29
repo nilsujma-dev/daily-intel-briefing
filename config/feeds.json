@@ -1,0 +1,27 @@
+{
+  "_comment": "tier: source authority multiplier used in scoring (1.0 = neutral). enabled:false to park a feed without deleting it.",
+  "cyber": [
+    {"name": "CISA Advisories",   "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml", "tier": 1.45, "enabled": true,  "note": "Authoritative US gov advisories, KEV additions, ICS alerts"},
+    {"name": "Krebs on Security", "url": "https://krebsonsecurity.com/feed/",                     "tier": 1.25, "enabled": true,  "note": "Investigative breach and fraud reporting"},
+    {"name": "BleepingComputer",  "url": "https://www.bleepingcomputer.com/feed/",               "tier": 1.10, "enabled": true,  "note": "Fastest breaking incident/ransomware coverage"},
+    {"name": "The Hacker News",   "url": "https://feeds.feedburner.com/TheHackersNews",          "tier": 1.00, "enabled": true,  "note": "Broad daily threat coverage"},
+    {"name": "Dark Reading",      "url": "https://www.darkreading.com/rss.xml",                  "tier": 1.20, "enabled": true,  "note": "CISO / enterprise risk and strategy angle"},
+
+    {"name": "SecurityWeek",      "url": "https://www.securityweek.com/feed/",                   "tier": 1.10, "enabled": false, "note": "Spare - enterprise security business news"},
+    {"name": "The Record",        "url": "https://therecord.media/feed",                         "tier": 1.15, "enabled": false, "note": "Spare - nation-state / policy"},
+    {"name": "Schneier on Security","url": "https://www.schneier.com/feed/atom/",                "tier": 1.10, "enabled": false, "note": "Spare - strategic commentary"},
+    {"name": "NCSC UK",           "url": "https://www.ncsc.gov.uk/api/1/services/v1/report-rss-feed.xml","tier": 1.30, "enabled": false, "note": "Spare - UK gov guidance"}
+  ],
+  "ai": [
+    {"name": "TechCrunch AI",     "url": "https://techcrunch.com/category/artificial-intelligence/feed/", "tier": 1.20, "enabled": true, "note": "Funding, M&A, product launches - business signal"},
+    {"name": "VentureBeat AI",    "url": "https://venturebeat.com/category/ai/feed/",                     "tier": 1.20, "enabled": true, "note": "Enterprise AI adoption and vendor strategy"},
+    {"name": "MIT Tech Review AI","url": "https://www.technologyreview.com/topic/artificial-intelligence/feed", "tier": 1.25, "enabled": true, "note": "Policy, regulation, deeper analysis"},
+    {"name": "The Verge AI",      "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",   "tier": 1.00, "enabled": true, "note": "Industry and big-tech moves"},
+    {"name": "Ars Technica AI",   "url": "https://arstechnica.com/ai/feed/",                               "tier": 1.05, "enabled": true, "note": "Technically grounded reporting"},
+
+    {"name": "Import AI",         "url": "https://importai.substack.com/feed",                    "tier": 1.20, "enabled": false, "note": "Spare - weekly strategy/policy newsletter"},
+    {"name": "Google DeepMind",   "url": "https://deepmind.google/blog/rss.xml",                   "tier": 1.10, "enabled": false, "note": "Spare - first-party research"},
+    {"name": "OpenAI News",       "url": "https://openai.com/news/rss.xml",                        "tier": 1.10, "enabled": false, "note": "Spare - first-party announcements"},
+    {"name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml",                   "tier": 0.95, "enabled": false, "note": "Spare - open-source model ecosystem"}
+  ]
+}

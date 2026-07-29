@@ -1,0 +1,16 @@
+[Unit]
+Description=Run the daily briefing at 08:00
+Documentation=file:%h/briefing/README.md
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+AccuracySec=1min
+
+# If the server was powered off or suspended at 08:00, run as soon as it is
+# back. This is the systemd equivalent of the launchd catch-up behaviour.
+Persistent=true
+
+Unit=briefing.service
+
+[Install]
+WantedBy=timers.target

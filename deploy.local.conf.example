@@ -1,0 +1,9 @@
+# Copy to deploy.local.conf and edit. That file is git-ignored.
+# These become the defaults for ./deploy.sh so you can run it with no arguments.
+
+HOST="192.168.1.50"
+USER_NAME="youruser"
+
+# Optional
+# REMOTE_DIR="briefing"
+# SSH_KEY="$HOME/.ssh/id_ed25519"

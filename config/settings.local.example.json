@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy to settings.local.json and edit. Deep-merged over settings.json, so list only what you change.",
+  "recipient": "you@example.com",
+  "curation": {
+    "model": "claude-opus-5"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "recipient": "you@example.com",
+  "sender": "me",
+  "subject_template": "Daily Briefing {date} - {cyber_n} Cyber / {ai_n} AI",
+  "lookback_hours": 30,
+  "hard_max_age_hours": 72,
+  "max_items_per_table": 12,
+  "min_items_to_send": 1,
+  "send_empty_briefing": false,
+  "dedupe": {
+    "retention_days": 45,
+    "fuzzy_title_window_days": 10,
+    "jaccard_threshold": 0.62,
+    "sequence_threshold": 0.86
+  },
+  "fetch": {
+    "timeout_seconds": 25,
+    "max_workers": 10,
+    "retries": 2,
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) DailyBriefing/1.0"
+  },
+  "scoring": {
+    "business_strategy_weight": 1.35,
+    "recency_boost_hours": 8,
+    "p1_threshold": 26,
+    "p2_threshold": 13,
+    "max_p1_per_table": 4,
+    "max_p2_per_table": 6
+  },
+  "oauth": {
+    "client_secret_file": "secrets/client_secret.json",
+    "token_file": "secrets/token.json",
+    "scope": "https://www.googleapis.com/auth/gmail.send",
+    "redirect_host": "127.0.0.1",
+    "_redirect_host_note": "If Google reports redirect_uri_mismatch, change this to 'localhost'."
+  },
+  "curation": {
+    "enabled": true,
+    "model": "claude-opus-5",
+    "api_key_file": "secrets/anthropic_api_key",
+    "max_candidates_per_domain": 25,
+    "max_tokens": 8000,
+    "timeout_seconds": 120,
+    "retries": 1,
+    "rewrite_details": true
+  }
+}
